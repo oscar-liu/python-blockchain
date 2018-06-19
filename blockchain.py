@@ -1,5 +1,6 @@
 import hashlib
 import json
+from urllib.parse import urlparse
 from time import time;
 from uuid import uuid4
 
@@ -11,8 +12,16 @@ class Blockchain:
     def __init__(self):
         self.chain = []
         self.current_transactions = []
+        self.nodes = set()
+
         #创世区块
         self.new_block(proof=100,previous_hash=1)
+
+    # 注册节点
+    def register_node(self, address: str):
+        #地址格式 http://x.x.x.x:5001 存储网络地址
+        url = urlparse(address)
+        self.nodes.add(url.netloc)
 
     #创建一个区块
     def new_block(self,proof,previous_hash=None):
@@ -87,6 +96,29 @@ app = Flask(__name__)
 blockchain = Blockchain();
 
 node_uuid = str(uuid4()).replace('-', '')
+
+'''
+{
+    "nodes" : ['http://127.0.0.2:5000']
+}
+'''
+#加入节点
+@app.route('/nodes/register', methods=['POST'])
+def register_nodes():
+    values = request.get_json()
+    nodes = values.get('nodes')
+
+    if nodes is None:
+        return 'Error : nodes Empty',400
+
+    for node in nodes:
+        blockchain.register_node(node)
+
+    response = {
+        "message" : "New Nodes ok",
+        "total_nodes" : list(blockchain.nodes)
+    }
+    return jsonify(response),201
 
 #新建交易
 @app.route('/transactions/new',methods=['POST'])
