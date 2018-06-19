@@ -4,7 +4,9 @@ from urllib.parse import urlparse
 from time import time;
 from uuid import uuid4
 
+import requests
 from flask import Flask, jsonify, request
+from argparse import ArgumentParser
 
 
 class Blockchain:
@@ -22,6 +24,57 @@ class Blockchain:
         #地址格式 http://x.x.x.x:5001 存储网络地址
         url = urlparse(address)
         self.nodes.add(url.netloc)
+
+    #校验区块有效性
+    def valid_chain(self, chain):
+
+        last_block = chain[0]
+        current_index = 1
+
+        while current_index < len(chain):
+            block = chain[current_index]
+
+            #hash 判断，传入的区块上一个hash值，不等于当前最后区块的hash值
+            if block['previous_hash'] != self.hash(last_block):
+                return False
+
+            #工作量证明
+            if not self.valid_proof(last_block['proof'],block['proof']):
+                return False
+
+            last_block = block;
+            current_index += 1
+
+        return True
+
+
+    # 共识算法解决冲突,使用网络中最长的链
+    def resolve_conflicts(self) -> bool:
+        neigbours = self.nodes
+
+        max_length = len(self.chain)
+        new_chain = None
+
+        for node in neigbours:
+            response = requests.get(f'http://{node}/chain')
+            if response.status_code == 200:
+                length = response.json()['length']
+                chain = response.json()['chain']  #链条信息
+
+                #对比自身长度和chain链条长度
+                if length > max_length and self.valid_chain(chain) :
+                    max_length = length
+                    new_chain = chain
+
+
+        if new_chain :
+            self.chain = new_chain
+            return True
+
+        return False
+
+
+
 
     #创建一个区块
     def new_block(self,proof,previous_hash=None):
@@ -97,11 +150,7 @@ blockchain = Blockchain();
 
 node_uuid = str(uuid4()).replace('-', '')
 
-'''
-{
-    "nodes" : ['http://127.0.0.2:5000']
-}
-'''
+#{"nodes" : ['http://127.0.0.2:5000']}
 #加入节点
 @app.route('/nodes/register', methods=['POST'])
 def register_nodes():
@@ -179,6 +228,32 @@ def full_chain():
 
     return jsonify(response)
 
+
+@app.route('/nodes/resolve',methods=['GET'])
+def consensus():
+    replaced = blockchain.resolve_conflicts()
+
+    if replaced:
+        response = {
+            "message" : "新的链条被取代",
+            "new_chain" : blockchain.chain
+        }
+    else:
+        response = {
+            "message" : "当前链是新最新",
+            "chain" : blockchain.chain
+        }
+
+    return jsonify(response),200
+
 if __name__ == '__main__' :
-    app.run(host='0.0.0.0',port=5000)
+
+    #启动多个端口服务
+
+    parser = ArgumentParser()
+    parser.add_argument('-p','--port', default=5000, type=int ,help = 'port to listen to')
+    args = parser.parse_args()
+    port = args.port
+
+    app.run(host='0.0.0.0',port=port)
 
